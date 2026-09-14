@@ -141,7 +141,7 @@ TOOL_SCHEMAS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "host": {"type": "string", "description": "Specific device_name to check, or omit for fleet-wide critical scan"},
+                    "host": {"type": "string", "description": "Device name or partial name to check (e.g. 'THUB16' matches 'NLR-LAM-THUB16.laman.local'), or omit for fleet-wide critical scan"},
                 },
             },
         },
@@ -388,22 +388,25 @@ def query_heartbeat_status(host: str = None) -> str:
         with conn.cursor() as cur:
             if host:
                 cur.execute(
-                    "SELECT cpu_percent, ram_percent, disk_status, last_checked, status "
-                    "FROM heartbeat WHERE device_name = %s", (host,)
+                    "SELECT device_name, cpu_percent, ram_percent, disk_status, last_checked, status "
+                    "FROM heartbeat WHERE device_name LIKE %s LIMIT 1", (
+                        f"%{host}%",)
                 )
                 current = cur.fetchone()
                 if not current:
                     return f"No heartbeat data found for '{host}'."
+                # exact stored name, e.g. includes .laman.local suffix
+                real_name = current[0]
 
                 cur.execute(
                     "SELECT cpu_percent, ram_percent, recorded_at FROM heartbeat_history "
                     "WHERE device_name = %s ORDER BY recorded_at DESC LIMIT 10", (
-                        host,)
+                        real_name,)
                 )
                 history = cur.fetchall()
 
-                lines = [f"Current: CPU={current[0]}% RAM={current[1]}% status={current[4]} "
-                         f"as of {current[3]}. Disk: {current[2]}"]
+                lines = [f"Current ({real_name}): CPU={current[1]}% RAM={current[2]}% status={current[5]} "
+                         f"as of {current[4]}. Disk: {current[3]}"]
                 lines.append("Recent history (most recent first):")
                 for cpu, ram, ts in history:
                     lines.append(f"  {ts}: CPU={cpu}% RAM={ram}%")
