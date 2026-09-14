@@ -6,25 +6,24 @@ until it either reports findings and wraps up, or decides nothing's wrong.
 This replaced the old fixed polling design. The model now decides what to check
 and in what order, instead of a hardcoded schedule checking everything blindly.
 """
-from db.db_writer import DBWriter
-from memory.vector_memory import VectorMemory
-from memory.state_store import StateStore
-import tools
-from config_loader import load_config
-from dotenv import load_dotenv
-import requests
 import sys
 import time
 import json
 import logging
 from pathlib import Path
 
-# so `tools` and `config_loader` import cleanly
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))  # so `tools` and `config_loader` import cleanly
 
+import requests
+from dotenv import load_dotenv
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)s: %(message)s")
+from config_loader import load_config
+import tools
+from memory.state_store import StateStore
+from memory.vector_memory import VectorMemory
+from db.db_writer import DBWriter
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger("argus-agent")
 
 MAX_TOOL_CALLS_PER_CYCLE = 8  # safety cap so a confused model can't loop forever
@@ -72,8 +71,7 @@ def run_investigation_cycle(llm_base_url: str, model: str):
 
         tool_calls = message.get("tool_calls")
         if not tool_calls:
-            log.info("Model responded without a tool call, ending cycle: %s",
-                     message.get("content", "")[:200])
+            log.info("Model responded without a tool call, ending cycle: %s", message.get("content", "")[:200])
             return
 
         for call in tool_calls:
@@ -97,8 +95,7 @@ def run_investigation_cycle(llm_base_url: str, model: str):
             messages.append({
                 "role": "tool",
                 "tool_call_id": call["id"],
-                # cap so context doesn't blow up on a 16GB box
-                "content": str(result)[:3000],
+                "content": str(result)[:3000],  # cap so context doesn't blow up on a 16GB box
             })
 
             if fn_name in ("investigation_complete",):
@@ -109,8 +106,7 @@ def run_investigation_cycle(llm_base_url: str, model: str):
                 # don't return here -- let the model keep investigating in case there's more,
                 # up to the MAX_TOOL_CALLS_PER_CYCLE cap
 
-    log.warning("Hit max tool calls (%d) this cycle without an explicit wrap-up.",
-                MAX_TOOL_CALLS_PER_CYCLE)
+    log.warning("Hit max tool calls (%d) this cycle without an explicit wrap-up.", MAX_TOOL_CALLS_PER_CYCLE)
 
 
 def main():
@@ -118,29 +114,25 @@ def main():
     cfg = load_config()
 
     state = StateStore(cfg["memory"]["state_db"])
-    memory = VectorMemory(cfg["memory"]["vector_db"],
-                          cfg["llm"]["base_url"], cfg["llm"]["embedding_model"])
+    memory = VectorMemory(cfg["memory"]["vector_db"], cfg["llm"]["base_url"], cfg["llm"]["embedding_model"])
     db = DBWriter(cfg["remote_db"])
     db.ensure_table()
 
     tools.init_tools(cfg, db, memory, state)
 
-    interval_seconds = cfg.get("agent", {}).get(
-        "cycle_interval_seconds", 900)  # default 15min
+    interval_seconds = cfg.get("agent", {}).get("cycle_interval_seconds", 900)  # default 15min
     log.info("Argus agent started. Cycle interval: %ds", interval_seconds)
 
     while True:
         cycle_start = time.time()
         try:
-            run_investigation_cycle(
-                cfg["llm"]["base_url"], cfg["llm"]["model"])
+            run_investigation_cycle(cfg["llm"]["base_url"], cfg["llm"]["model"])
         except Exception:
             log.exception("Investigation cycle failed")
 
         elapsed = time.time() - cycle_start
         sleep_for = max(0, interval_seconds - elapsed)
-        log.info("Cycle took %.1fs, sleeping %.1fs until next one.",
-                 elapsed, sleep_for)
+        log.info("Cycle took %.1fs, sleeping %.1fs until next one.", elapsed, sleep_for)
         time.sleep(sleep_for)
 
 
