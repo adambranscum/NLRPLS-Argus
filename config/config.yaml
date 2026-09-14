@@ -19,7 +19,7 @@ remote_db:
 sources:
   wazuh:
     enabled: true
-    base_url: "https://192.168.13.14:55000"
+    base_url: "https://192.168.13.14:9200"
     verify_ssl: false
     poll_interval_seconds: 180
     min_level: 10                         # matches your existing Loki forwarding threshold
