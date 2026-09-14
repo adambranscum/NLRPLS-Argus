@@ -305,9 +305,13 @@ def query_security_onion(host: str = None, min_severity: int = 3, minutes: int =
 def query_semaphore_tasks(status_filter: str = "any", limit: int = 20) -> str:
     sem_cfg = _cfg["sources"]["semaphore"]
     project_id = sem_cfg.get("project_id", 1)
+    token = os.environ["SEMAPHORE_API_TOKEN"]
 
     resp = requests.get(
-        f"{sem_cfg['base_url'].rstrip('/')}/api/project/{project_id}/tasks", timeout=15)
+        f"{sem_cfg['base_url'].rstrip('/')}/api/project/{project_id}/tasks",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=15,
+    )
     resp.raise_for_status()
     tasks = resp.json()[:limit]
 
