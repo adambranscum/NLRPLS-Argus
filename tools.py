@@ -133,10 +133,29 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "query_heartbeat_status",
+            "description": "Check machine resource status (CPU/RAM/disk) from Ansible's heartbeat data. "
+            "Omit host to see only machines CURRENTLY flagged critical (breach threshold). "
+            "Give a specific host to see its current status plus its recent history, so "
+            "you can tell whether it's a one-off spike or a real climbing trend.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "host": {"type": "string", "description": "Specific device_name to check, or omit for fleet-wide critical scan"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "report_finding",
-            "description": "Call this ONLY when you've confirmed a real, reportable issue and are done "
-            "investigating. Writes the finding to the database. Do not call this for "
-            "things you're still checking — finish gathering evidence first.",
+            "description": "Log a confirmed issue to the findings record. This does NOT create a "
+            "ticket or alert anyone — it's a quiet record. Call this for anything you've "
+            "confirmed is real, regardless of severity. You'll be told whether this is the "
+            "first time this issue has been seen or whether it's been open across prior "
+            "cycles — use that, plus the severity and your own judgment, to separately "
+            "decide whether escalate_to_ticket is also warranted right now.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -147,6 +166,31 @@ TOOL_SCHEMAS = [
                     "evidence": {"type": "string", "description": "Key facts/log lines that support this finding"},
                 },
                 "required": ["severity", "host", "source", "summary"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "escalate_to_ticket",
+            "description": "Creates a real ticket a human will see and act on. This is a DELIBERATE "
+            "decision, separate from report_finding — do not call this reflexively just "
+            "because something is severity=high or critical. Reasonable reasons to escalate: "
+            "the issue is actively ongoing and getting worse, it directly threatens security "
+            "or availability right now, or it's been open across multiple cycles without "
+            "resolving on its own. Reasonable reasons to hold off: this is the first time "
+            "you're seeing it and it could be transient, you're not fully certain it's real, "
+            "or it's something worth watching for another cycle before involving a person. "
+            "You must give a real justification for why escalation is needed now, not later.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "host": {"type": "string"},
+                    "source": {"type": "string"},
+                    "summary": {"type": "string", "description": "One or two sentence description for the ticket subject/body"},
+                    "justification": {"type": "string", "description": "Why this needs a ticket NOW rather than continued monitoring"},
+                },
+                "required": ["host", "source", "summary", "justification"],
             },
         },
     },
@@ -327,17 +371,70 @@ def query_fax_log(pattern: str = None, lines: int = 200) -> str:
     return "\n".join(l.strip() for l in all_lines[-50:])
 
 
+def query_heartbeat_status(host: str = None) -> str:
+    import pymysql
+    conn = pymysql.connect(
+        host=_cfg["remote_db"]["host"],
+        port=_cfg["remote_db"].get("port", 3306),
+        user=_cfg["remote_db"]["user"],
+        password=os.environ["REMOTE_DB_PASSWORD"],
+        database=_cfg["remote_db"]["database"],
+    )
+    try:
+        with conn.cursor() as cur:
+            if host:
+                cur.execute(
+                    "SELECT cpu_percent, ram_percent, disk_status, last_checked, status "
+                    "FROM heartbeat WHERE device_name = %s", (host,)
+                )
+                current = cur.fetchone()
+                if not current:
+                    return f"No heartbeat data found for '{host}'."
+
+                cur.execute(
+                    "SELECT cpu_percent, ram_percent, recorded_at FROM heartbeat_history "
+                    "WHERE device_name = %s ORDER BY recorded_at DESC LIMIT 10", (
+                        host,)
+                )
+                history = cur.fetchall()
+
+                lines = [f"Current: CPU={current[0]}% RAM={current[1]}% status={current[4]} "
+                         f"as of {current[3]}. Disk: {current[2]}"]
+                lines.append("Recent history (most recent first):")
+                for cpu, ram, ts in history:
+                    lines.append(f"  {ts}: CPU={cpu}% RAM={ram}%")
+                return "\n".join(lines)
+            else:
+                cur.execute(
+                    "SELECT device_name, cpu_percent, ram_percent, disk_status, last_checked "
+                    "FROM heartbeat WHERE status = 'critical'"
+                )
+                rows = cur.fetchall()
+                if not rows:
+                    return "No machines currently in critical status."
+                lines = [
+                    f"- {name}: CPU={cpu}% RAM={ram}% disk={disk} (as of {ts})"
+                    for name, cpu, ram, disk, ts in rows
+                ]
+                return "\n".join(lines)
+    finally:
+        conn.close()
+
+
 def report_finding(severity: str, host: str, source: str, summary: str, evidence: str = "") -> str:
     import hashlib
     fingerprint = hashlib.sha256(
         f"{source}|{host}|{summary[:120]}".encode()).hexdigest()[:24]
 
+    # check BEFORE updating, so we know true prior state
+    history = _state.get_history(fingerprint)
     transition = _state.check_and_update_raw(
         fingerprint, source, host, severity, summary)
+
     if transition == "ongoing":
-        # Same issue already open from a prior cycle — don't re-write the DB row or
-        # re-embed into long-term memory every 15 minutes. last_seen still got bumped above.
-        return f"Already tracked as open (unchanged since it was first seen): {summary}"
+        return (f"Already tracked (unchanged). First seen: {history['first_seen']}. "
+                f"This has been open since then without you needing to log it again. "
+                f"Consider whether it now warrants escalate_to_ticket given how long it's persisted.")
 
     _db.upsert_finding(
         fingerprint=fingerprint, source=source, host=host,
@@ -345,7 +442,23 @@ def report_finding(severity: str, host: str, source: str, summary: str, evidence
     )
     _memory.add_incident(fingerprint=fingerprint, source=source,
                          summary=f"{summary} | evidence: {evidence}")
-    return f"Finding recorded ({transition}): [{severity}] {host}: {summary}"
+
+    if transition == "new":
+        return (f"Finding recorded (first time seen): [{severity}] {host}: {summary}. "
+                f"This is brand new — consider whether it's worth escalating now or watching "
+                f"for the next cycle before creating a ticket.")
+    else:  # reopened
+        return (f"Finding recorded (reopened — was previously resolved, now back): "
+                f"[{severity}] {host}: {summary}. A recurring issue may warrant escalation "
+                f"even at lower severity, since it didn't stay fixed.")
+
+
+def escalate_to_ticket(host: str, source: str, summary: str, justification: str) -> str:
+    subject = f"[{source}] Agent-detected issue on {host}"
+    body = f"{summary}\n\nJustification for escalation: {justification}"
+    _db.insert_ticket(subject=subject, body=body,
+                      device_name=host, problem_type="Monitoring Alert")
+    return f"Ticket created for {host}: {subject}"
 
 
 def investigation_complete() -> str:
@@ -359,6 +472,8 @@ TOOL_FUNCTIONS = {
     "query_semaphore_tasks": query_semaphore_tasks,
     "query_freepbx_status": query_freepbx_status,
     "query_fax_log": query_fax_log,
+    "query_heartbeat_status": query_heartbeat_status,
     "report_finding": report_finding,
+    "escalate_to_ticket": escalate_to_ticket,
     "investigation_complete": investigation_complete,
 }
