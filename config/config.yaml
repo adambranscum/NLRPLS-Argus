@@ -1,5 +1,5 @@
 llm:
-  base_url: "http://192.168.13.126:1234/v1"   # LM Studio OpenAI-compatible endpoint
+  base_url: "http://192.168.13.6:1234/v1"   # LM Studio OpenAI-compatible endpoint
   model: "qwen3-vl-8b-instruct-mlx"           # confirmed via /v1/models
   embedding_model: "qwen3-embedding-0.6b-dwq" # confirmed via /v1/models
   temperature: 0.1
