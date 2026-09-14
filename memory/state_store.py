@@ -37,7 +37,8 @@ class StateStore:
                 """INSERT INTO event_state
                    (fingerprint, source, host, severity, message, first_seen, last_seen, status)
                    VALUES (?, ?, ?, ?, ?, ?, ?, 'open')""",
-                (fp, event.source, event.host, event.severity, event.message, now, now),
+                (fp, event.source, event.host,
+                 event.severity, event.message, now, now),
             )
             self.conn.commit()
             return "new"
@@ -50,9 +51,39 @@ class StateStore:
         self.conn.commit()
         return "reopened" if status == "resolved" else "ongoing"
 
+    def check_and_update_raw(self, fingerprint: str, source: str, host: str,
+                             severity: str, message: str) -> str:
+        """Same as check_and_update, but for callers that don't have a NormalizedEvent
+        object handy — e.g. the agent's report_finding tool, which builds its own
+        fingerprint directly from the model's arguments."""
+        now = datetime.now(timezone.utc).isoformat()
+        row = self.conn.execute(
+            "SELECT status FROM event_state WHERE fingerprint = ?", (
+                fingerprint,)
+        ).fetchone()
+
+        if row is None:
+            self.conn.execute(
+                """INSERT INTO event_state
+                   (fingerprint, source, host, severity, message, first_seen, last_seen, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'open')""",
+                (fingerprint, source, host, severity, message, now, now),
+            )
+            self.conn.commit()
+            return "new"
+
+        status = row[0]
+        self.conn.execute(
+            "UPDATE event_state SET last_seen = ?, severity = ?, status = 'open' WHERE fingerprint = ?",
+            (now, severity, fingerprint),
+        )
+        self.conn.commit()
+        return "reopened" if status == "resolved" else "ongoing"
+
     def mark_resolved(self, fingerprint: str):
         self.conn.execute(
-            "UPDATE event_state SET status = 'resolved' WHERE fingerprint = ?", (fingerprint,)
+            "UPDATE event_state SET status = 'resolved' WHERE fingerprint = ?", (
+                fingerprint,)
         )
         self.conn.commit()
 
@@ -61,6 +92,7 @@ class StateStore:
         Anything still 'open' in the DB for that source but absent from this cycle
         is presumed resolved (e.g. the alert cleared)."""
         rows = self.conn.execute(
-            "SELECT fingerprint FROM event_state WHERE source = ? AND status = 'open'", (source,)
+            "SELECT fingerprint FROM event_state WHERE source = ? AND status = 'open'", (
+                source,)
         ).fetchall()
         return [r[0] for r in rows if r[0] not in seen_fingerprints]

@@ -1,80 +1,116 @@
-import time
-import logging
-import yaml
-from pathlib import Path
-from dotenv import load_dotenv
+"""
+The agent core: every 15 minutes, hands the model a system prompt and the tool
+list, then loops -- execute whatever tool it calls, feed the result back, repeat --
+until it either reports findings and wraps up, or decides nothing's wrong.
 
-from connectors.wazuh import WazuhConnector
-from connectors.loki import LokiConnector
-from connectors.semaphore import SemaphoreConnector
-from connectors.freepbx import FreePBXConnector
-from connectors.faxserver import FaxServerConnector
-from connectors.security_onion import SecurityOnionConnector
-
-from memory.state_store import StateStore
-from memory.vector_memory import VectorMemory
-from llm.classifier import Classifier
+This replaced the old fixed polling design. The model now decides what to check
+and in what order, instead of a hardcoded schedule checking everything blindly.
+"""
 from db.db_writer import DBWriter
+from memory.vector_memory import VectorMemory
+from memory.state_store import StateStore
+import tools
+from config_loader import load_config
+from dotenv import load_dotenv
+import requests
+import sys
+import time
+import json
+import logging
+from pathlib import Path
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-log = logging.getLogger("monitor-agent")
-
-CONNECTOR_CLASSES = {
-    "wazuh": WazuhConnector,
-    "loki": LokiConnector,
-    "semaphore": SemaphoreConnector,
-    "freepbx": FreePBXConnector,
-    "faxserver": FaxServerConnector,
-    "security_onion": SecurityOnionConnector,
-}
-
-
-def load_config() -> dict:
-    config_path = Path(__file__).parent.parent / "config" / "config.yaml"
-    with open(config_path) as f:
-        return yaml.safe_load(f)
+# so `tools` and `config_loader` import cleanly
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-def build_connectors(cfg: dict) -> dict:
-    connectors = {}
-    for name, source_cfg in cfg["sources"].items():
-        if not source_cfg.get("enabled", False):
-            log.info("Skipping disabled source: %s", name)
-            continue
-        connectors[name] = CONNECTOR_CLASSES[name](source_cfg)
-    return connectors
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s: %(message)s")
+log = logging.getLogger("argus-agent")
+
+MAX_TOOL_CALLS_PER_CYCLE = 8  # safety cap so a confused model can't loop forever
+
+SYSTEM_PROMPT = """You are Argus, a monitoring agent for the NLRPLS library system's IT infrastructure.
+
+Each cycle, investigate the environment for real problems: security issues, failing jobs,
+telephony/fax problems, resource issues. You decide what to check and in what order --
+you're not following a fixed script.
+
+Available tools let you query Wazuh security alerts, Loki logs, Security Onion (once deployed),
+Ansible/Semaphore job history, FreePBX SIP status, and the fax server log.
+
+Guidelines:
+- Start broad (e.g. check Wazuh for anything above medium severity in the last hour), then
+  narrow in on anything that looks real by cross-referencing other sources for the same host/time.
+- Don't report routine/expected activity -- only things that are genuinely actionable.
+- Call report_finding for each distinct real issue you confirm, with real evidence.
+- Call investigation_complete when you've checked what's relevant and found nothing more to report.
+- You have a limited number of tool calls this cycle -- don't waste them on redundant checks.
+"""
 
 
-def process_events(events, source_name, state, memory, classifier, db, interval_cfg):
-    seen_fingerprints = set()
+def run_investigation_cycle(llm_base_url: str, model: str):
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": "Begin your investigation cycle."},
+    ]
 
-    for event in events:
-        fp = event.fingerprint()
-        seen_fingerprints.add(fp)
-        transition = state.check_and_update(event)
-
-        if transition == "ongoing":
-            continue  # already open and classified; last_seen already bumped
-
-        similar = memory.find_similar(event.message, k=3)
-        result = classifier.classify(event, similar)
-
-        if not result.get("report_worthy", True):
-            log.info("[%s] not report-worthy, skipping: %s", source_name, event.message[:80])
-            continue
-
-        db.upsert_finding(
-            fingerprint=fp, source=event.source, host=event.host,
-            severity=result["severity"], summary=result["summary"], status="open",
+    for step in range(MAX_TOOL_CALLS_PER_CYCLE):
+        resp = requests.post(
+            f"{llm_base_url}/chat/completions",
+            json={
+                "model": model,
+                "temperature": 0.1,
+                "messages": messages,
+                "tools": tools.TOOL_SCHEMAS,
+                "tool_choice": "auto",
+            },
+            timeout=90,
         )
-        memory.add_incident(fingerprint=fp, source=event.source, summary=result["summary"])
-        log.info("[%s] %s: %s (%s)", source_name, transition, result["summary"], result["severity"])
+        resp.raise_for_status()
+        message = resp.json()["choices"][0]["message"]
+        messages.append(message)
 
-    # anything open in the DB for this source but not seen this cycle -> presumed resolved
-    for stale_fp in state.stale_open_fingerprints(source_name, seen_fingerprints):
-        state.mark_resolved(stale_fp)
-        db.mark_resolved(stale_fp)
-        log.info("[%s] resolved: %s", source_name, stale_fp)
+        tool_calls = message.get("tool_calls")
+        if not tool_calls:
+            log.info("Model responded without a tool call, ending cycle: %s",
+                     message.get("content", "")[:200])
+            return
+
+        for call in tool_calls:
+            fn_name = call["function"]["name"]
+            try:
+                fn_args = json.loads(call["function"]["arguments"] or "{}")
+            except json.JSONDecodeError:
+                fn_args = {}
+
+            log.info("Tool call: %s(%s)", fn_name, fn_args)
+            fn = tools.TOOL_FUNCTIONS.get(fn_name)
+            if fn is None:
+                result = f"Unknown tool: {fn_name}"
+            else:
+                try:
+                    result = fn(**fn_args)
+                except Exception as e:
+                    log.exception("Tool %s failed", fn_name)
+                    result = f"Tool error: {e}"
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call["id"],
+                # cap so context doesn't blow up on a 16GB box
+                "content": str(result)[:3000],
+            })
+
+            if fn_name in ("investigation_complete",):
+                log.info("Cycle ended: %s", result)
+                return
+            if fn_name == "report_finding":
+                log.info("Finding: %s", result)
+                # don't return here -- let the model keep investigating in case there's more,
+                # up to the MAX_TOOL_CALLS_PER_CYCLE cap
+
+    log.warning("Hit max tool calls (%d) this cycle without an explicit wrap-up.",
+                MAX_TOOL_CALLS_PER_CYCLE)
 
 
 def main():
@@ -82,38 +118,30 @@ def main():
     cfg = load_config()
 
     state = StateStore(cfg["memory"]["state_db"])
-    memory = VectorMemory(
-        cfg["memory"]["vector_db"],
-        cfg["llm"]["base_url"],
-        cfg["llm"]["embedding_model"],
-    )
-    classifier = Classifier(cfg["llm"]["base_url"], cfg["llm"]["model"], cfg["llm"].get("temperature", 0.1))
+    memory = VectorMemory(cfg["memory"]["vector_db"],
+                          cfg["llm"]["base_url"], cfg["llm"]["embedding_model"])
     db = DBWriter(cfg["remote_db"])
     db.ensure_table()
 
-    connectors = build_connectors(cfg)
-    next_run = {name: 0.0 for name in connectors}
+    tools.init_tools(cfg, db, memory, state)
 
-    log.info("Started with sources: %s", list(connectors.keys()))
+    interval_seconds = cfg.get("agent", {}).get(
+        "cycle_interval_seconds", 900)  # default 15min
+    log.info("Argus agent started. Cycle interval: %ds", interval_seconds)
 
     while True:
-        now = time.time()
-        for name, connector in connectors.items():
-            if now < next_run[name]:
-                continue
-            interval = cfg["sources"][name]["poll_interval_seconds"]
-            next_run[name] = now + interval
-            try:
-                events = connector.poll()
-            except Exception:
-                log.exception("[%s] poll failed", name)
-                continue
-            if events:
-                try:
-                    process_events(events, name, state, memory, classifier, db, interval)
-                except Exception:
-                    log.exception("[%s] processing failed", name)
-        time.sleep(5)  # tick rate; actual per-source cadence controlled by next_run
+        cycle_start = time.time()
+        try:
+            run_investigation_cycle(
+                cfg["llm"]["base_url"], cfg["llm"]["model"])
+        except Exception:
+            log.exception("Investigation cycle failed")
+
+        elapsed = time.time() - cycle_start
+        sleep_for = max(0, interval_seconds - elapsed)
+        log.info("Cycle took %.1fs, sleeping %.1fs until next one.",
+                 elapsed, sleep_for)
+        time.sleep(sleep_for)
 
 
 if __name__ == "__main__":

@@ -17,13 +17,15 @@ requests.packages.urllib3.disable_warnings()
 _cfg = None
 _db = None
 _memory = None
+_state = None
 
 
-def init_tools(cfg: dict, db_writer, vector_memory):
-    global _cfg, _db, _memory
+def init_tools(cfg: dict, db_writer, vector_memory, state_store):
+    global _cfg, _db, _memory, _state
     _cfg = cfg
     _db = db_writer
     _memory = vector_memory
+    _state = state_store
 
 
 # ---------------------------------------------------------------------------
@@ -36,13 +38,13 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "query_wazuh_alerts",
             "description": "Search Wazuh security alerts. Use to check a specific host for recent "
-                            "security events, or to scan for anything above a severity level fleet-wide.",
+            "security events, or to scan for anything above a severity level fleet-wide.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "host": {"type": "string", "description": "Agent/host name to filter to, or omit for all hosts"},
                     "min_severity": {"type": "string", "enum": ["low", "medium", "high", "critical"],
-                                      "description": "Minimum severity to return, default medium"},
+                                     "description": "Minimum severity to return, default medium"},
                     "minutes": {"type": "integer", "description": "How far back to look, default 60"},
                 },
             },
@@ -53,9 +55,9 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "query_loki",
             "description": "Run a LogQL query against Loki for raw log lines from any source already "
-                            "flowing there (wazuh, heartbeat, os-updates, software). Use this to pull "
-                            "context around something you found elsewhere, e.g. all recent lines for a "
-                            "specific host across every log source.",
+            "flowing there (wazuh, heartbeat, os-updates, software). Use this to pull "
+            "context around something you found elsewhere, e.g. all recent lines for a "
+            "specific host across every log source.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -71,7 +73,7 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "query_security_onion",
             "description": "Search Security Onion network/traffic alerts. NOT YET DEPLOYED — will "
-                            "return an empty result with a note until the sensor is live.",
+            "return an empty result with a note until the sensor is live.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -87,12 +89,12 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "query_semaphore_tasks",
             "description": "Check recent Ansible/Semaphore playbook run history. Use to see if a "
-                            "scheduled job failed, or check a specific playbook's recent runs.",
+            "scheduled job failed, or check a specific playbook's recent runs.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "status_filter": {"type": "string", "enum": ["any", "error", "success"],
-                                        "description": "default 'any'"},
+                                      "description": "default 'any'"},
                     "limit": {"type": "integer", "description": "Max tasks to return, default 20"},
                 },
             },
@@ -103,8 +105,8 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "query_freepbx_status",
             "description": "Get live SIP/PJSIP peer registration status from FreePBX. Use when "
-                            "investigating call quality issues or checking whether a specific trunk/peer "
-                            "is currently registered.",
+            "investigating call quality issues or checking whether a specific trunk/peer "
+            "is currently registered.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -118,7 +120,7 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "query_fax_log",
             "description": "Search recent lines from the fax server's Asterisk log. Only works if the "
-                            "agent has access to that log path — will note if it doesn't.",
+            "agent has access to that log path — will note if it doesn't.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -133,8 +135,8 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "report_finding",
             "description": "Call this ONLY when you've confirmed a real, reportable issue and are done "
-                            "investigating. Writes the finding to the database. Do not call this for "
-                            "things you're still checking — finish gathering evidence first.",
+            "investigating. Writes the finding to the database. Do not call this for "
+            "things you're still checking — finish gathering evidence first.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -153,7 +155,7 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "investigation_complete",
             "description": "Call this when you've checked what's relevant and found NOTHING worth "
-                            "reporting. Ends the cycle cleanly without writing anything.",
+            "reporting. Ends the cycle cleanly without writing anything.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -174,7 +176,8 @@ def query_wazuh_alerts(host: str = None, min_severity: str = "medium", minutes: 
     since = datetime.now(timezone.utc) - timedelta(minutes=minutes)
 
     must = [
-        {"range": {"rule.level": {"gte": _SEVERITY_TO_LEVEL.get(min_severity, 7)}}},
+        {"range": {"rule.level": {
+            "gte": _SEVERITY_TO_LEVEL.get(min_severity, 7)}}},
         {"range": {"timestamp": {"gte": since.isoformat()}}},
     ]
     if host:
@@ -182,7 +185,8 @@ def query_wazuh_alerts(host: str = None, min_severity: str = "medium", minutes: 
 
     resp = requests.post(
         f"{wazuh_cfg['base_url'].rstrip('/')}/wazuh-alerts-4.x-*/_search",
-        json={"query": {"bool": {"must": must}}, "sort": [{"timestamp": "desc"}], "size": 30},
+        json={"query": {"bool": {"must": must}},
+              "sort": [{"timestamp": "desc"}], "size": 30},
         auth=(user, password), verify=wazuh_cfg.get("verify_ssl", False), timeout=20,
     )
     resp.raise_for_status()
@@ -204,7 +208,8 @@ def query_loki(logql_query: str, minutes: int = 60) -> str:
 
     resp = requests.get(
         f"{loki_cfg['base_url'].rstrip('/')}/loki/api/v1/query_range",
-        params={"query": logql_query, "start": int(start_ns), "end": int(now_ns), "limit": 50},
+        params={"query": logql_query, "start": int(
+            start_ns), "end": int(now_ns), "limit": 50},
         timeout=15,
     )
     resp.raise_for_status()
@@ -236,7 +241,8 @@ def query_security_onion(host: str = None, min_severity: int = 3, minutes: int =
 
     resp = requests.post(
         f"{so_cfg['base_url'].rstrip('/')}/so-*/_search",
-        json={"query": {"bool": {"must": must}}, "sort": [{"@timestamp": "desc"}], "size": 30},
+        json={"query": {"bool": {"must": must}}, "sort": [
+            {"@timestamp": "desc"}], "size": 30},
         auth=(user, password) if user else None,
         verify=so_cfg.get("verify_ssl", False), timeout=20,
     )
@@ -256,7 +262,8 @@ def query_semaphore_tasks(status_filter: str = "any", limit: int = 20) -> str:
     sem_cfg = _cfg["sources"]["semaphore"]
     project_id = sem_cfg.get("project_id", 1)
 
-    resp = requests.get(f"{sem_cfg['base_url'].rstrip('/')}/api/project/{project_id}/tasks", timeout=15)
+    resp = requests.get(
+        f"{sem_cfg['base_url'].rstrip('/')}/api/project/{project_id}/tasks", timeout=15)
     resp.raise_for_status()
     tasks = resp.json()[:limit]
 
@@ -265,8 +272,8 @@ def query_semaphore_tasks(status_filter: str = "any", limit: int = 20) -> str:
     if not tasks:
         return "No matching Semaphore tasks found."
     lines = [
-        f"- Task #{t.get('id')} ({t.get('template_name','?')}): status={t.get('status')} "
-        f"start={t.get('start','?')}"
+        f"- Task #{t.get('id')} ({t.get('template_name', '?')}): status={t.get('status')} "
+        f"start={t.get('start', '?')}"
         for t in tasks
     ]
     return "\n".join(lines)
@@ -322,14 +329,23 @@ def query_fax_log(pattern: str = None, lines: int = 200) -> str:
 
 def report_finding(severity: str, host: str, source: str, summary: str, evidence: str = "") -> str:
     import hashlib
-    fingerprint = hashlib.sha256(f"{source}|{host}|{summary[:120]}".encode()).hexdigest()[:24]
+    fingerprint = hashlib.sha256(
+        f"{source}|{host}|{summary[:120]}".encode()).hexdigest()[:24]
+
+    transition = _state.check_and_update_raw(
+        fingerprint, source, host, severity, summary)
+    if transition == "ongoing":
+        # Same issue already open from a prior cycle — don't re-write the DB row or
+        # re-embed into long-term memory every 15 minutes. last_seen still got bumped above.
+        return f"Already tracked as open (unchanged since it was first seen): {summary}"
 
     _db.upsert_finding(
         fingerprint=fingerprint, source=source, host=host,
         severity=severity, summary=summary, status="open",
     )
-    _memory.add_incident(fingerprint=fingerprint, source=source, summary=f"{summary} | evidence: {evidence}")
-    return f"Finding recorded: [{severity}] {host}: {summary}"
+    _memory.add_incident(fingerprint=fingerprint, source=source,
+                         summary=f"{summary} | evidence: {evidence}")
+    return f"Finding recorded ({transition}): [{severity}] {host}: {summary}"
 
 
 def investigation_complete() -> str:

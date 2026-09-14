@@ -1,8 +1,11 @@
 llm:
-  base_url: "http://127.0.0.1:1234/v1"   # LM Studio OpenAI-compatible endpoint
-  model: "qwen3-14b-instruct"            # swap to your loaded model name in LM Studio
-  embedding_model: "text-embedding-qwen3-embedding"  # for long-term memory
+  base_url: "http://192.168.13.126:1234/v1"   # LM Studio OpenAI-compatible endpoint
+  model: "qwen3-vl-8b-instruct-mlx"           # confirmed via /v1/models
+  embedding_model: "qwen3-embedding-0.6b-dwq" # confirmed via /v1/models
   temperature: 0.1
+
+agent:
+  cycle_interval_seconds: 900   # 15 minutes between investigation cycles
 
 memory:
   state_db: "./data/state.sqlite"        # dedupe/fingerprint tracking
@@ -19,7 +22,7 @@ remote_db:
 sources:
   wazuh:
     enabled: true
-    base_url: "https://192.168.13.14:9200"
+    base_url: "https://192.168.13.14:9200"  # indexer, NOT the old :55000 manager API
     verify_ssl: false
     poll_interval_seconds: 180
     min_level: 10                         # matches your existing Loki forwarding threshold
@@ -36,6 +39,7 @@ sources:
   semaphore:
     enabled: true
     base_url: "http://192.168.13.17:3000"
+    project_id: 1   # TODO confirm against your actual Semaphore project ID
     poll_interval_seconds: 300
     # alerts on any task run with status "error" or "fail"
 
