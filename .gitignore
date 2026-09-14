@@ -770,3 +770,4 @@ venv/lib/python3.9/site-packages/yaml/scanner.py
 venv/lib/python3.9/site-packages/yaml/serializer.py
 venv/lib/python3.9/site-packages/yaml/tokens.py
 venv/pyvenv.cfg
+.DS_Store
