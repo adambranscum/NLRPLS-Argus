@@ -12,7 +12,7 @@ memory:
   vector_db: "./data/memory.sqlite"      # long-term incident memory (sqlite-vec)
 
 remote_db:
-  host: "3.17.222.1184"            # e.g. same host as ithelpdesk DB
+  host: "3.17.222.184"            # e.g. same host as ithelpdesk DB
   port: 3306
   database: "ithelpdesk"
   table: "agent_findings"
