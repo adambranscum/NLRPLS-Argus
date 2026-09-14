@@ -55,9 +55,10 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "query_loki",
             "description": "Run a LogQL query against Loki for raw log lines from any source already "
-            "flowing there (wazuh, heartbeat, os-updates, software). Use this to pull "
+            "flowing there (wazuh, heartbeat, os-updates, software, fax). Use this to pull "
             "context around something you found elsewhere, e.g. all recent lines for a "
-            "specific host across every log source.",
+            "specific host across every log source, or fax server activity via "
+            "'{source=\"fax\"}'.",
             "parameters": {
                 "type": "object",
                 "properties": {
