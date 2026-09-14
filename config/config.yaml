@@ -1,0 +1,64 @@
+llm:
+  base_url: "http://127.0.0.1:1234/v1"   # LM Studio OpenAI-compatible endpoint
+  model: "qwen3-14b-instruct"            # swap to your loaded model name in LM Studio
+  embedding_model: "text-embedding-qwen3-embedding"  # for long-term memory
+  temperature: 0.1
+
+memory:
+  state_db: "./data/state.sqlite"        # dedupe/fingerprint tracking
+  vector_db: "./data/memory.sqlite"      # long-term incident memory (sqlite-vec)
+
+remote_db:
+  host: "TODO-remote-db-host"            # e.g. same host as ithelpdesk DB
+  port: 3306
+  database: "TODO"
+  table: "agent_findings"
+  user: "TODO"
+  # password comes from .env, not here
+
+sources:
+  wazuh:
+    enabled: true
+    base_url: "https://192.168.13.14:55000"
+    verify_ssl: false
+    poll_interval_seconds: 180
+    min_level: 10                         # matches your existing Loki forwarding threshold
+
+  loki:
+    enabled: true
+    base_url: "http://192.168.13.10:3100"
+    poll_interval_seconds: 180
+    queries:
+      - '{source="wazuh"}'
+      - '{source="os-updates"} |= "failed"'
+      - '{source="heartbeat"} |= "breach"'
+
+  semaphore:
+    enabled: true
+    base_url: "http://192.168.13.17:3000"
+    poll_interval_seconds: 300
+    # alerts on any task run with status "error" or "fail"
+
+  freepbx:
+    enabled: true
+    host: "192.168.10.7"
+    ami_port: 5038
+    poll_interval_seconds: 600
+    # AMI events watched: Hangup with bad cause codes, registration failures
+
+  faxserver:
+    enabled: true
+    host: "192.168.10.8"
+    log_path: "/var/log/asterisk/full.log"
+    poll_interval_seconds: 900
+    error_patterns:
+      - "UDPTL"
+      - "T.38 negotiation failed"
+      - "ReceiveFax.*FAILED"
+
+  security_onion:
+    enabled: false                        # flip on once SO box is deployed
+    base_url: "TODO-security-onion-host"  # e.g. https://<so-host>:9200 (so-elastic)
+    verify_ssl: false
+    poll_interval_seconds: 300
+    min_severity: 3                       # SO/Suricata severity scale, tune once live
