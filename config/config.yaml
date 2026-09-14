@@ -12,11 +12,11 @@ memory:
   vector_db: "./data/memory.sqlite"      # long-term incident memory (sqlite-vec)
 
 remote_db:
-  host: "TODO-remote-db-host"            # e.g. same host as ithelpdesk DB
+  host: "3.17.222.1184"            # e.g. same host as ithelpdesk DB
   port: 3306
-  database: "TODO"
+  database: "ithelpdesk"
   table: "agent_findings"
-  user: "TODO"
+  user: "ithelpdesk_db"
   # password comes from .env, not here
 
 sources:
