@@ -80,6 +80,18 @@ class StateStore:
         self.conn.commit()
         return "reopened" if status == "resolved" else "ongoing"
 
+    def get_history(self, fingerprint: str) -> dict | None:
+        """Returns first_seen/last_seen/status for a fingerprint, or None if never seen.
+        Used by report_finding to tell the model how long an issue has persisted —
+        that's the actual signal for deciding 'monitor' vs 'escalate now', not severity alone."""
+        row = self.conn.execute(
+            "SELECT first_seen, last_seen, status FROM event_state WHERE fingerprint = ?",
+            (fingerprint,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {"first_seen": row[0], "last_seen": row[1], "status": row[2]}
+
     def mark_resolved(self, fingerprint: str):
         self.conn.execute(
             "UPDATE event_state SET status = 'resolved' WHERE fingerprint = ?", (
