@@ -138,6 +138,10 @@ def run_collection_pass(db_path: str, state, max_hosts_to_dig: int = 6, max_wind
     collect("freepbx", "all-endpoints", freepbx_status)
     record_metric("fleet", "freepbx", "unavailable_endpoint_count", _count_freepbx_unavailable(freepbx_status))
 
+    security_onion_alerts = _safe(lambda: tools.query_security_onion(minutes=window_minutes))
+    collect("security_onion", "network-alert-scan", security_onion_alerts)
+    record_metric("fleet", "security_onion", "alert_count", _count_list_lines(security_onion_alerts))
+
     # --- Targeted follow-up: for every host flagged in the Wazuh scan, pull its
     # heartbeat trend and recent Loki activity too, so the model doesn't have to
     # ask for these one at a time. ---
