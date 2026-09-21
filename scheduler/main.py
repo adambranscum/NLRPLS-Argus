@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 from config_loader import load_config
 import tools
+import collector
 from memory.state_store import StateStore
 from memory.vector_memory import VectorMemory
 from db.db_writer import DBWriter
@@ -26,31 +27,53 @@ from db.db_writer import DBWriter
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger("argus-agent")
 
-MAX_TOOL_CALLS_PER_CYCLE = 8  # safety cap so a confused model can't loop forever
+MAX_TOOL_CALLS_PER_CYCLE = 25  # raised from 8 -- real cross-host investigation needs room
 
 SYSTEM_PROMPT = """You are Argus, a monitoring agent for the NLRPLS library system's IT infrastructure.
 
-Each cycle, investigate the environment for real problems: security issues, failing jobs,
-telephony/fax problems, resource issues. You decide what to check and in what order --
-you're not following a fixed script.
+Each cycle, you're handed a batch of pre-gathered data: a broad Wazuh scan, a fleet-wide
+heartbeat critical check, recent Semaphore failures, FreePBX status, plus heartbeat and Loki
+data already pulled for any host that showed up in the Wazuh scan. Read through all of it first.
+Your job is to reason over what's there, decide what's actually worth reporting, and use the
+tools only for genuine follow-up -- a deeper dig on something specific, or to log/escalate
+what you've found.
 
 Available tools let you query Wazuh security alerts, Loki logs, Security Onion (once deployed),
 Ansible/Semaphore job history, FreePBX SIP status, and the fax server log.
 
 Guidelines:
-- Start broad (e.g. check Wazuh for anything above medium severity in the last hour), then
-  narrow in on anything that looks real by cross-referencing other sources for the same host/time.
+- The pre-gathered data already covers the broad scan and any host it flagged -- don't
+  re-run those same exact queries. Use tools for what the data DOESN'T already answer: a
+  different time window, a different host, a different LogQL filter, or digging into
+  something the initial data only hinted at.
+- Investigate EVERY distinct host/issue that shows up in the pre-gathered data, not just the
+  first one or two -- don't fixate on a single lead while ignoring the others.
+- When a lead doesn't pan out (e.g. no matching logs found), don't just move to a different
+  topic -- try a different angle on the SAME lead first (a broader time window, a different
+  LogQL filter, checking an adjacent host) before abandoning it.
 - Don't report routine/expected activity -- only things that are genuinely actionable.
-- Call report_finding for each distinct real issue you confirm, with real evidence.
+- Call report_finding for each distinct real issue you confirm, with real evidence. This just
+  logs it -- it does NOT alert anyone.
+- Escalating to a ticket is a SEPARATE decision from logging a finding. Do not escalate just
+  because severity is high or critical -- reason about it: is this actively ongoing and worsening,
+  or has it persisted across multiple cycles without resolving? Or is this the first time you've
+  seen it, and worth watching one more cycle before involving a person? report_finding will tell
+  you whether an issue is new or recurring -- use that to inform whether escalate_to_ticket is
+  warranted now, later, or not at all.
 - Call investigation_complete when you've checked what's relevant and found nothing more to report.
-- You have a limited number of tool calls this cycle -- don't waste them on redundant checks.
+- You have a generous but not unlimited number of tool calls this cycle -- use them to actually
+  dig, not to stop early. Thoroughness matters more than speed here.
 """
 
 
-def run_investigation_cycle(llm_base_url: str, model: str):
+def run_investigation_cycle(llm_base_url: str, model: str, scratch_db_path: str, state):
+    log.info("Running mechanical collection pass (no LLM, no tokens)...")
+    digest = collector.run_collection_pass(scratch_db_path, state)
+    log.info("Collection pass done, %d chars of pre-gathered data.", len(digest))
+
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": "Begin your investigation cycle."},
+        {"role": "user", "content": f"Begin your investigation cycle.\n\n{digest}"},
     ]
 
     for step in range(MAX_TOOL_CALLS_PER_CYCLE):
@@ -101,8 +124,8 @@ def run_investigation_cycle(llm_base_url: str, model: str):
             if fn_name in ("investigation_complete",):
                 log.info("Cycle ended: %s", result)
                 return
-            if fn_name == "report_finding":
-                log.info("Finding: %s", result)
+            if fn_name in ("report_finding", "escalate_to_ticket"):
+                log.info("%s: %s", fn_name, result)
                 # don't return here -- let the model keep investigating in case there's more,
                 # up to the MAX_TOOL_CALLS_PER_CYCLE cap
 
@@ -123,10 +146,12 @@ def main():
     interval_seconds = cfg.get("agent", {}).get("cycle_interval_seconds", 900)  # default 15min
     log.info("Argus agent started. Cycle interval: %ds", interval_seconds)
 
+    scratch_db_path = cfg["memory"].get("scratch_db", "./data/cycle_snapshots.sqlite")
+
     while True:
         cycle_start = time.time()
         try:
-            run_investigation_cycle(cfg["llm"]["base_url"], cfg["llm"]["model"])
+            run_investigation_cycle(cfg["llm"]["base_url"], cfg["llm"]["model"], scratch_db_path, state)
         except Exception:
             log.exception("Investigation cycle failed")
 
