@@ -61,8 +61,8 @@ sources:
       - "ReceiveFax.*FAILED"
 
   security_onion:
-    enabled: false                        # flip on once SO box is deployed
-    base_url: "TODO-security-onion-host"  # e.g. https://<so-host>:9200 (so-elastic)
+    enabled: true                         # flip from false now that it's live
+    base_url: "https://192.168.13.X"      # port 443, not 9200 — drop the :9200 entirely
     verify_ssl: false
     poll_interval_seconds: 300
-    min_severity: 3                       # SO/Suricata severity scale, tune once live
+    min_severity: 3
