@@ -38,13 +38,13 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "query_wazuh_alerts",
             "description": "Search Wazuh security alerts. Use to check a specific host for recent "
-            "security events, or to scan for anything above a severity level fleet-wide.",
+                            "security events, or to scan for anything above a severity level fleet-wide.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "host": {"type": "string", "description": "Agent/host name to filter to, or omit for all hosts"},
                     "min_severity": {"type": "string", "enum": ["low", "medium", "high", "critical"],
-                                     "description": "Minimum severity to return, default medium"},
+                                      "description": "Minimum severity to return, default medium"},
                     "minutes": {"type": "integer", "description": "How far back to look, default 60"},
                 },
             },
@@ -55,10 +55,10 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "query_loki",
             "description": "Run a LogQL query against Loki for raw log lines from any source already "
-            "flowing there (wazuh, heartbeat, os-updates, software, fax). Use this to pull "
-            "context around something you found elsewhere, e.g. all recent lines for a "
-            "specific host across every log source, or fax server activity via "
-            "'{source=\"fax\"}'.",
+                            "flowing there (wazuh, heartbeat, os-updates, software, fax). Use this to pull "
+                            "context around something you found elsewhere, e.g. all recent lines for a "
+                            "specific host across every log source, or fax server activity via "
+                            "'{source=\"fax\"}'.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -74,7 +74,7 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "query_security_onion",
             "description": "Search Security Onion network/traffic alerts. NOT YET DEPLOYED — will "
-            "return an empty result with a note until the sensor is live.",
+                            "return an empty result with a note until the sensor is live.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -90,12 +90,12 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "query_semaphore_tasks",
             "description": "Check recent Ansible/Semaphore playbook run history. Use to see if a "
-            "scheduled job failed, or check a specific playbook's recent runs.",
+                            "scheduled job failed, or check a specific playbook's recent runs.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "status_filter": {"type": "string", "enum": ["any", "error", "success"],
-                                      "description": "default 'any'"},
+                                        "description": "default 'any'"},
                     "limit": {"type": "integer", "description": "Max tasks to return, default 20"},
                 },
             },
@@ -106,8 +106,8 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "query_freepbx_status",
             "description": "Get live SIP/PJSIP peer registration status from FreePBX. Use when "
-            "investigating call quality issues or checking whether a specific trunk/peer "
-            "is currently registered.",
+                            "investigating call quality issues or checking whether a specific trunk/peer "
+                            "is currently registered.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -121,7 +121,7 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "query_fax_log",
             "description": "Search recent lines from the fax server's Asterisk log. Only works if the "
-            "agent has access to that log path — will note if it doesn't.",
+                            "agent has access to that log path — will note if it doesn't.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -136,9 +136,9 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "query_heartbeat_status",
             "description": "Check machine resource status (CPU/RAM/disk) from Ansible's heartbeat data. "
-            "Omit host to see only machines CURRENTLY flagged critical (breach threshold). "
-            "Give a specific host to see its current status plus its recent history, so "
-            "you can tell whether it's a one-off spike or a real climbing trend.",
+                            "Omit host to see only machines CURRENTLY flagged critical (breach threshold). "
+                            "Give a specific host to see its current status plus its recent history, so "
+                            "you can tell whether it's a one-off spike or a real climbing trend.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -152,11 +152,11 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "report_finding",
             "description": "Log a confirmed issue to the findings record. This does NOT create a "
-            "ticket or alert anyone — it's a quiet record. Call this for anything you've "
-            "confirmed is real, regardless of severity. You'll be told whether this is the "
-            "first time this issue has been seen or whether it's been open across prior "
-            "cycles — use that, plus the severity and your own judgment, to separately "
-            "decide whether escalate_to_ticket is also warranted right now.",
+                            "ticket or alert anyone — it's a quiet record. Call this for anything you've "
+                            "confirmed is real, regardless of severity. You'll be told whether this is the "
+                            "first time this issue has been seen or whether it's been open across prior "
+                            "cycles — use that, plus the severity and your own judgment, to separately "
+                            "decide whether escalate_to_ticket is also warranted right now.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -175,14 +175,14 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "escalate_to_ticket",
             "description": "Creates a real ticket a human will see and act on. This is a DELIBERATE "
-            "decision, separate from report_finding — do not call this reflexively just "
-            "because something is severity=high or critical. Reasonable reasons to escalate: "
-            "the issue is actively ongoing and getting worse, it directly threatens security "
-            "or availability right now, or it's been open across multiple cycles without "
-            "resolving on its own. Reasonable reasons to hold off: this is the first time "
-            "you're seeing it and it could be transient, you're not fully certain it's real, "
-            "or it's something worth watching for another cycle before involving a person. "
-            "You must give a real justification for why escalation is needed now, not later.",
+                            "decision, separate from report_finding — do not call this reflexively just "
+                            "because something is severity=high or critical. Reasonable reasons to escalate: "
+                            "the issue is actively ongoing and getting worse, it directly threatens security "
+                            "or availability right now, or it's been open across multiple cycles without "
+                            "resolving on its own. Reasonable reasons to hold off: this is the first time "
+                            "you're seeing it and it could be transient, you're not fully certain it's real, "
+                            "or it's something worth watching for another cycle before involving a person. "
+                            "You must give a real justification for why escalation is needed now, not later.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -198,9 +198,44 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "note_watch_item",
+            "description": "Note something that looks slightly off but isn't confirmed enough for "
+                            "report_finding yet -- e.g. a metric trending the wrong way, a one-off "
+                            "anomaly you want to see if it repeats. This persists and will be shown "
+                            "to you again at the start of future cycles, so you don't lose track of "
+                            "it while you wait for more data.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "host": {"type": "string"},
+                    "source": {"type": "string"},
+                    "note": {"type": "string", "description": "What you're watching for and why"},
+                },
+                "required": ["host", "source", "note"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "resolve_watch_item",
+            "description": "Clear a previously noted watch item -- either it turned out to be "
+                            "nothing, or it's been confirmed and logged via report_finding instead.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item_id": {"type": "integer", "description": "The id shown next to the watch item"},
+                },
+                "required": ["item_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "investigation_complete",
             "description": "Call this when you've checked what's relevant and found NOTHING worth "
-            "reporting. Ends the cycle cleanly without writing anything.",
+                            "reporting. Ends the cycle cleanly without writing anything.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -221,8 +256,7 @@ def query_wazuh_alerts(host: str = None, min_severity: str = "medium", minutes: 
     since = datetime.now(timezone.utc) - timedelta(minutes=minutes)
 
     must = [
-        {"range": {"rule.level": {
-            "gte": _SEVERITY_TO_LEVEL.get(min_severity, 7)}}},
+        {"range": {"rule.level": {"gte": _SEVERITY_TO_LEVEL.get(min_severity, 7)}}},
         {"range": {"timestamp": {"gte": since.isoformat()}}},
     ]
     if host:
@@ -230,8 +264,7 @@ def query_wazuh_alerts(host: str = None, min_severity: str = "medium", minutes: 
 
     resp = requests.post(
         f"{wazuh_cfg['base_url'].rstrip('/')}/wazuh-alerts-4.x-*/_search",
-        json={"query": {"bool": {"must": must}},
-              "sort": [{"timestamp": "desc"}], "size": 30},
+        json={"query": {"bool": {"must": must}}, "sort": [{"timestamp": "desc"}], "size": 30},
         auth=(user, password), verify=wazuh_cfg.get("verify_ssl", False), timeout=20,
     )
     resp.raise_for_status()
@@ -253,8 +286,7 @@ def query_loki(logql_query: str, minutes: int = 60) -> str:
 
     resp = requests.get(
         f"{loki_cfg['base_url'].rstrip('/')}/loki/api/v1/query_range",
-        params={"query": logql_query, "start": int(
-            start_ns), "end": int(now_ns), "limit": 50},
+        params={"query": logql_query, "start": int(start_ns), "end": int(now_ns), "limit": 50},
         timeout=15,
     )
     resp.raise_for_status()
@@ -286,8 +318,7 @@ def query_security_onion(host: str = None, min_severity: int = 3, minutes: int =
 
     resp = requests.post(
         f"{so_cfg['base_url'].rstrip('/')}/so-*/_search",
-        json={"query": {"bool": {"must": must}}, "sort": [
-            {"@timestamp": "desc"}], "size": 30},
+        json={"query": {"bool": {"must": must}}, "sort": [{"@timestamp": "desc"}], "size": 30},
         auth=(user, password) if user else None,
         verify=so_cfg.get("verify_ssl", False), timeout=20,
     )
@@ -321,8 +352,8 @@ def query_semaphore_tasks(status_filter: str = "any", limit: int = 20) -> str:
     if not tasks:
         return "No matching Semaphore tasks found."
     lines = [
-        f"- Task #{t.get('id')} ({t.get('template_name', '?')}): status={t.get('status')} "
-        f"start={t.get('start', '?')}"
+        f"- Task #{t.get('id')} ({t.get('template_name','?')}): status={t.get('status')} "
+        f"start={t.get('start','?')}"
         for t in tasks
     ]
     return "\n".join(lines)
@@ -390,19 +421,16 @@ def query_heartbeat_status(host: str = None) -> str:
             if host:
                 cur.execute(
                     "SELECT device_name, cpu_percent, ram_percent, disk_status, last_checked, status "
-                    "FROM heartbeat WHERE device_name LIKE %s LIMIT 1", (
-                        f"%{host}%",)
+                    "FROM heartbeat WHERE device_name LIKE %s LIMIT 1", (f"%{host}%",)
                 )
                 current = cur.fetchone()
                 if not current:
                     return f"No heartbeat data found for '{host}'."
-                # exact stored name, e.g. includes .laman.local suffix
-                real_name = current[0]
+                real_name = current[0]  # exact stored name, e.g. includes .laman.local suffix
 
                 cur.execute(
                     "SELECT cpu_percent, ram_percent, recorded_at FROM heartbeat_history "
-                    "WHERE device_name = %s ORDER BY recorded_at DESC LIMIT 10", (
-                        real_name,)
+                    "WHERE device_name = %s ORDER BY recorded_at DESC LIMIT 10", (real_name,)
                 )
                 history = cur.fetchall()
 
@@ -431,25 +459,32 @@ def query_heartbeat_status(host: str = None) -> str:
 
 def report_finding(severity: str, host: str, source: str, summary: str, evidence: str = "") -> str:
     import hashlib
-    fingerprint = hashlib.sha256(
-        f"{source}|{host}|{summary[:120]}".encode()).hexdigest()[:24]
+    # Fingerprint on source+host only (NOT summary text) -- the model rewords its own
+    # summary every cycle, so keying on that text created a new "finding" each time
+    # instead of recognizing the same ongoing issue. One open finding per host+source
+    # at a time; report_finding updates its severity/summary as re-investigated.
+    fingerprint = hashlib.sha256(f"{source}|{host}".encode()).hexdigest()[:24]
 
-    # check BEFORE updating, so we know true prior state
-    history = _state.get_history(fingerprint)
-    transition = _state.check_and_update_raw(
-        fingerprint, source, host, severity, summary)
+    history = _state.get_history(fingerprint)  # check BEFORE updating, so we know true prior state
+    transition = _state.check_and_update_raw(fingerprint, source, host, severity, summary)
 
     if transition == "ongoing":
-        return (f"Already tracked (unchanged). First seen: {history['first_seen']}. "
-                f"This has been open since then without you needing to log it again. "
+        # Still refresh the DB row's severity/summary/last_seen -- e.g. if this escalated
+        # from medium to critical, the visible record should reflect that -- but skip the
+        # expensive re-embedding into long-term memory since it's not a new incident.
+        _db.upsert_finding(
+            fingerprint=fingerprint, source=source, host=host,
+            severity=severity, summary=summary, status="open",
+        )
+        return (f"Already tracked (open since {history['first_seen']}), refreshed with latest "
+                f"severity/summary: [{severity}] {summary}. "
                 f"Consider whether it now warrants escalate_to_ticket given how long it's persisted.")
 
     _db.upsert_finding(
         fingerprint=fingerprint, source=source, host=host,
         severity=severity, summary=summary, status="open",
     )
-    _memory.add_incident(fingerprint=fingerprint, source=source,
-                         summary=f"{summary} | evidence: {evidence}")
+    _memory.add_incident(fingerprint=fingerprint, source=source, summary=f"{summary} | evidence: {evidence}")
 
     if transition == "new":
         return (f"Finding recorded (first time seen): [{severity}] {host}: {summary}. "
@@ -464,9 +499,18 @@ def report_finding(severity: str, host: str, source: str, summary: str, evidence
 def escalate_to_ticket(host: str, source: str, summary: str, justification: str) -> str:
     subject = f"[{source}] Agent-detected issue on {host}"
     body = f"{summary}\n\nJustification for escalation: {justification}"
-    _db.insert_ticket(subject=subject, body=body,
-                      device_name=host, problem_type="Monitoring Alert")
+    _db.insert_ticket(subject=subject, body=body, device_name=host, problem_type="Monitoring Alert")
     return f"Ticket created for {host}: {subject}"
+
+
+def note_watch_item(host: str, source: str, note: str) -> str:
+    item_id = _state.add_watch_item(host, source, note)
+    return f"Watch item #{item_id} recorded for {host}: {note}"
+
+
+def resolve_watch_item(item_id: int) -> str:
+    _state.resolve_watch_item(item_id)
+    return f"Watch item #{item_id} resolved/cleared."
 
 
 def investigation_complete() -> str:
@@ -483,5 +527,7 @@ TOOL_FUNCTIONS = {
     "query_heartbeat_status": query_heartbeat_status,
     "report_finding": report_finding,
     "escalate_to_ticket": escalate_to_ticket,
+    "note_watch_item": note_watch_item,
+    "resolve_watch_item": resolve_watch_item,
     "investigation_complete": investigation_complete,
 }
