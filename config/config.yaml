@@ -62,7 +62,7 @@ sources:
 
   security_onion:
     enabled: true                         # flip from false now that it's live
-    base_url: "https://192.168.13.X"      # port 443, not 9200 — drop the :9200 entirely
+    base_url: "https://192.168.13.19"      # port 443, not 9200 — drop the :9200 entirely
     verify_ssl: false
     poll_interval_seconds: 300
     min_severity: 3
