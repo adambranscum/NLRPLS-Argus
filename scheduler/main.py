@@ -46,6 +46,9 @@ Guidelines:
   re-run those same exact queries. Use tools for what the data DOESN'T already answer: a
   different time window, a different host, a different LogQL filter, or digging into
   something the initial data only hinted at.
+- If a query comes back empty or unhelpful, that IS your answer for that angle -- move to a
+  genuinely different check, don't retry the same query with cosmetic argument tweaks
+  (adding/removing a default parameter does not count as a new query).
 - Investigate EVERY distinct host/issue that shows up in the pre-gathered data, not just the
   first one or two -- don't fixate on a single lead while ignoring the others.
 - When a lead doesn't pan out (e.g. no matching logs found), don't just move to a different
@@ -75,6 +78,7 @@ def run_investigation_cycle(llm_base_url: str, model: str, scratch_db_path: str,
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Begin your investigation cycle.\n\n{digest}"},
     ]
+    seen_calls = set()  # (fn_name, sorted-args-json) already executed this cycle -- blocks redundant looping
 
     for step in range(MAX_TOOL_CALLS_PER_CYCLE):
         resp = requests.post(
@@ -86,7 +90,7 @@ def run_investigation_cycle(llm_base_url: str, model: str, scratch_db_path: str,
                 "tools": tools.TOOL_SCHEMAS,
                 "tool_choice": "auto",
             },
-            timeout=90,
+            timeout=240,  # raised from 90 -- growing context on this hardware can legitimately take longer
         )
         resp.raise_for_status()
         message = resp.json()["choices"][0]["message"]
@@ -103,6 +107,23 @@ def run_investigation_cycle(llm_base_url: str, model: str, scratch_db_path: str,
                 fn_args = json.loads(call["function"]["arguments"] or "{}")
             except json.JSONDecodeError:
                 fn_args = {}
+
+            call_signature = (fn_name, json.dumps(fn_args, sort_keys=True))
+            if call_signature in seen_calls:
+                log.warning("Blocked redundant repeat call: %s(%s)", fn_name, fn_args)
+                result = (
+                    "You already ran this exact query this cycle -- the result hasn't changed. "
+                    "Don't repeat it. Either try a genuinely different query (different host, "
+                    "different filter, different source) or move on to report_finding / "
+                    "note_watch_item / investigation_complete."
+                )
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": call["id"],
+                    "content": result,
+                })
+                continue
+            seen_calls.add(call_signature)
 
             log.info("Tool call: %s(%s)", fn_name, fn_args)
             fn = tools.TOOL_FUNCTIONS.get(fn_name)
